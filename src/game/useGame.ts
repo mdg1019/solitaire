@@ -152,7 +152,7 @@ export function useGame() {
     const pile = game.value?.tableau[pileIndex];
     if (!pile) return;
     const card = pile[cardIndex];
-    if (!card.face_up) return;
+    if (!card || !card.face_up) return;
     if (selection.value) {
       if (
         selection.value.kind === "tableau" &&
@@ -220,7 +220,8 @@ export function useGame() {
       event.preventDefault();
       return;
     }
-    if (!pile[cardIndex].face_up) {
+    const lead = pile[cardIndex];
+    if (!lead || !lead.face_up) {
       event.preventDefault();
       return;
     }
@@ -280,10 +281,10 @@ export function useGame() {
 
   function getDraggingCard(): Card | null {
     if (!dragSource.value || !game.value) return null;
-    if (dragSource.value.kind === "waste") return topWaste.value;
+    if (dragSource.value.kind === "waste") return topWaste.value ?? null;
     if (dragSource.value.kind === "foundation") {
       const pile = game.value.foundations[dragSource.value.index];
-      return pile?.length ? pile[pile.length - 1] : null;
+      return pile?.length ? pile[pile.length - 1]! : null;
     }
     const pile = game.value.tableau[dragSource.value.index];
     if (!pile) return null;

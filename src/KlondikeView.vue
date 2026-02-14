@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import type { Card } from "./game/types";
 import { backUrl, suitIcons, suitOrder } from "./game/constants";
 import { cardImage } from "./game/utils";
 import { useGame } from "./game/useGame";
@@ -75,6 +76,15 @@ function setDrawModeFromMenu(mode: 1 | 3) {
   closeMenu();
 }
 
+function getSuitIcon(index: number): string {
+  const suit = suitOrder[index];
+  return suit ? suitIcons[suit] : "";
+}
+
+function getFoundationTop(pile: Card[]): Card | null {
+  return pile.length ? pile[pile.length - 1]! : null;
+}
+
 type Particle = {
   x: number;
   y: number;
@@ -87,10 +97,12 @@ type Particle = {
 };
 
 function startFireworks() {
-  const canvas = winCanvas.value;
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
+  const canvasEl = winCanvas.value;
+  if (!canvasEl) return;
+  const ctx = canvasEl.getContext("2d");
   if (!ctx) return;
+  const canvas = canvasEl;
+  const context = ctx;
 
   const particles: Particle[] = [];
   const colors = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#f9c74f"];
@@ -102,13 +114,13 @@ function startFireworks() {
     canvas.height = Math.floor(window.innerHeight * dpr);
     canvas.style.width = `${window.innerWidth}px`;
     canvas.style.height = `${window.innerHeight}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   function burst() {
     const x = Math.random() * window.innerWidth;
     const y = Math.random() * window.innerHeight * 0.55 + 40;
-    const color = colors[Math.floor(Math.random() * colors.length)];
+    const color = colors[Math.floor(Math.random() * colors.length)] ?? "#ffd166";
     const count = 36 + Math.floor(Math.random() * 24);
     for (let i = 0; i < count; i += 1) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.2;
@@ -127,25 +139,26 @@ function startFireworks() {
   }
 
   function animate(now: number) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    context.clearRect(0, 0, canvas.width, canvas.height);
     if (Math.random() < 0.12) burst();
     for (let i = particles.length - 1; i >= 0; i -= 1) {
       const p = particles[i];
+      if (!p) continue;
       p.life += 1;
       p.vy += 0.03;
       p.x += p.vx;
       p.y += p.vy;
       const alpha = Math.max(0, 1 - p.life / p.maxLife);
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
+      context.globalAlpha = alpha;
+      context.fillStyle = p.color;
+      context.beginPath();
+      context.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      context.fill();
       if (p.life >= p.maxLife) {
         particles.splice(i, 1);
       }
     }
-    ctx.globalAlpha = 1;
+    context.globalAlpha = 1;
 
     if (now - start < 10000) {
       fireworkFrame = requestAnimationFrame(animate);
@@ -159,7 +172,7 @@ function startFireworks() {
     if (fireworkFrame) cancelAnimationFrame(fireworkFrame);
     fireworkFrame = null;
     window.removeEventListener("resize", resize);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    context.clearRect(0, 0, canvas.width, canvas.height);
     dismissedWin.value = true;
   }, 10000);
 }
@@ -303,7 +316,7 @@ onUnmounted(() => {
         >
           <img
             v-if="pile.length"
-            :src="cardImage(pile[pile.length - 1])"
+            :src="cardImage(getFoundationTop(pile)!)"
             class="card"
             :class="{ selected: isSelectedFoundation(index) }"
             alt="Foundation"
@@ -311,7 +324,7 @@ onUnmounted(() => {
           />
           <img
             v-else
-            :src="suitIcons[suitOrder[index]]"
+            :src="getSuitIcon(index)"
             class="foundation-icon"
             alt="Foundation"
           />
