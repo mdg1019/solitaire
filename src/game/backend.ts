@@ -255,3 +255,8 @@ export function setDrawCount(drawCount: 1 | 3): GameState {
   state.draw_count = drawCount;
   return cloneState(state);
 }
+
+export function setState(nextState: GameState): GameState {
+  state = JSON.parse(JSON.stringify(nextState)) as GameState;
+  return cloneState(state);
+}

@@ -1,4 +1,4 @@
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { suitOrder } from "./constants";
 import type { Card, GameState, Selection } from "./types";
 import { cardImage } from "./utils";
@@ -6,6 +6,7 @@ import {
   draw as drawBackend,
   moveCards as moveCardsBackend,
   newGame as newGameBackend,
+  setState as setStateBackend,
   setDrawCount as setDrawCountBackend,
 } from "./backend";
 
@@ -16,6 +17,13 @@ export function useGame() {
   const drawMode = ref<1 | 3>(3);
   const dragSource = ref<Selection | null>(null);
   const dragOverTarget = ref<string | null>(null);
+  const undoStack = ref<GameState[]>([]);
+  const keydownHandler = (event: KeyboardEvent) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      undo();
+    }
+  };
 
   const topWaste = computed(() => {
     const waste = game.value?.waste;
@@ -29,18 +37,49 @@ export function useGame() {
       : [];
   });
 
-  async function newGame() {
-    message.value = "";
+  const canUndo = computed(() => undoStack.value.length > 0);
+
+  function snapshotState(): GameState | null {
+    if (!game.value) return null;
+    return JSON.parse(JSON.stringify(game.value)) as GameState;
+  }
+
+  function pushUndo(state: GameState | null) {
+    if (!state) return;
+    undoStack.value.push(state);
+    if (undoStack.value.length > 200) {
+      undoStack.value.shift();
+    }
+  }
+
+  function resetTransientState() {
     selection.value = null;
+    dragSource.value = null;
+    dragOverTarget.value = null;
+    message.value = "";
+  }
+
+  function undo() {
+    const previous = undoStack.value.pop();
+    if (!previous) return;
+    game.value = setStateBackend(previous);
+    drawMode.value = (game.value.draw_count as 1 | 3) ?? drawMode.value;
+    resetTransientState();
+  }
+
+  async function newGame() {
+    resetTransientState();
+    undoStack.value = [];
     game.value = newGameBackend();
     drawMode.value = (game.value?.draw_count as 1 | 3) ?? 3;
   }
 
   async function drawCard() {
     if (!game.value) return;
-    message.value = "";
-    selection.value = null;
+    const previous = snapshotState();
+    resetTransientState();
     game.value = drawBackend();
+    pushUndo(previous);
   }
 
   function selectWaste() {
@@ -82,6 +121,7 @@ export function useGame() {
 
   async function performMove(from: Selection, toKind: "foundation" | "tableau", toIndex: number) {
     if (!game.value) return;
+    const previous = snapshotState();
     message.value = "";
     try {
       const fromRef = {
@@ -94,6 +134,7 @@ export function useGame() {
         to: { kind: toKind, index: toIndex },
       });
       selection.value = null;
+      pushUndo(previous);
     } catch (err) {
       message.value = err instanceof Error ? err.message : String(err);
     }
@@ -266,12 +307,19 @@ export function useGame() {
   const isSelectedWaste = computed(() => selection.value?.kind === "waste");
 
   async function setDrawMode(mode: 1 | 3) {
+    const previous = snapshotState();
     drawMode.value = mode;
     game.value = setDrawCountBackend(mode);
+    pushUndo(previous);
   }
 
   onMounted(() => {
     newGame();
+    window.addEventListener("keydown", keydownHandler);
+  });
+
+  onUnmounted(() => {
+    window.removeEventListener("keydown", keydownHandler);
   });
 
   return {
@@ -305,5 +353,7 @@ export function useGame() {
     isSelectedTableau,
     isSelectedWaste,
     setDrawMode,
+    canUndo,
+    undo,
   };
 }

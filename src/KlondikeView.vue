@@ -11,7 +11,9 @@ const {
   drawMode,
   dragOverTarget,
   topWaste,
+  canUndo,
   newGame,
+  undo,
   drawCard,
   selectWaste,
   handleFoundationClick,
@@ -61,6 +63,9 @@ function toggleMenu() {
     <div class="menu-panel" :class="{ open: isMenuOpen }">
       <div class="menu-content">
         <button type="button" class="menu-action" @click="newGame">New Game</button>
+        <button type="button" class="menu-action" :disabled="!canUndo" @click="undo">
+          Undo (Ctrl+Z)
+        </button>
         <div class="menu-group" role="group" aria-label="Draw mode">
           <label class="menu-radio">
             <input
