@@ -20,4 +20,4 @@ export const suitIcons: Record<Suit, string> = {
   spades: cardAssetUrl("spade.svg"),
 };
 
-export const suitOrder: Suit[] = ["hearts", "diamonds", "clubs", "spades"];
+export const suitOrder: Suit[] = ["hearts", "clubs", "diamonds", "spades"];

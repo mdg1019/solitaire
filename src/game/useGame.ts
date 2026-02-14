@@ -1,5 +1,6 @@
 import { computed, onMounted, ref } from "vue";
-import type { GameState, Selection } from "./types";
+import { suitOrder } from "./constants";
+import type { Card, GameState, Selection } from "./types";
 import { cardImage } from "./utils";
 import {
   draw as drawBackend,
@@ -187,6 +188,47 @@ export function useGame() {
     dragOverTarget.value = `tableau:${pileIndex}`;
   }
 
+  function getDraggingCard(): Card | null {
+    if (!dragSource.value || !game.value) return null;
+    if (dragSource.value.kind === "waste") return topWaste.value;
+    if (dragSource.value.kind === "foundation") {
+      const pile = game.value.foundations[dragSource.value.index];
+      return pile?.length ? pile[pile.length - 1] : null;
+    }
+    const pile = game.value.tableau[dragSource.value.index];
+    if (!pile) return null;
+    return pile[dragSource.value.cardIndex]?.card ?? null;
+  }
+
+  function canDropOnFoundation(index: number): boolean {
+    if (!game.value) return false;
+    const card = getDraggingCard();
+    if (!card) return false;
+    const pile = game.value.foundations[index];
+    if (!pile) return false;
+    const top = pile[pile.length - 1];
+    if (top) {
+      return top.suit === card.suit && card.rank === top.rank + 1;
+    }
+    return card.rank === 1 && suitOrder[index] === card.suit;
+  }
+
+  function onFoundationDragEnter(index: number) {
+    if (canDropOnFoundation(index)) {
+      dragOverTarget.value = `foundation:${index}`;
+    } else {
+      dragOverTarget.value = null;
+    }
+  }
+
+  function onFoundationDragOver(event: DragEvent, index: number) {
+    if (canDropOnFoundation(index)) {
+      event.preventDefault();
+    } else if (dragOverTarget.value === `foundation:${index}`) {
+      dragOverTarget.value = null;
+    }
+  }
+
   function onDragLeave(event: DragEvent, key: string) {
     if (dragOverTarget.value === key) {
       const ct = event.currentTarget as HTMLElement;
@@ -251,6 +293,8 @@ export function useGame() {
     onWasteDragStart,
     onTableauDragStart,
     onFoundationDrop,
+    onFoundationDragEnter,
+    onFoundationDragOver,
     onTableauDrop,
     onTableauDragEnter,
     onDragLeave,

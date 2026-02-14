@@ -21,6 +21,8 @@ const {
   onWasteDragStart,
   onTableauDragStart,
   onFoundationDrop,
+  onFoundationDragEnter,
+  onFoundationDragOver,
   onTableauDrop,
   onTableauDragEnter,
   onDragLeave,
@@ -113,8 +115,8 @@ function toggleMenu() {
           class="pile foundation"
           :class="{ filled: pile.length, 'drag-over': dragOverTarget === `foundation:${index}` }"
           @click="moveToFoundation(index)"
-          @dragover.prevent
-          @dragenter.prevent="dragOverTarget = `foundation:${index}`"
+          @dragover="onFoundationDragOver($event, index)"
+          @dragenter.prevent="onFoundationDragEnter(index)"
           @dragleave="onDragLeave($event, `foundation:${index}`)"
           @drop="onFoundationDrop($event, index)"
         >

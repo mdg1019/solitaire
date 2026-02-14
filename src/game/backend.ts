@@ -1,3 +1,4 @@
+import { suitOrder } from "./constants";
 import type { Card, GameState, Suit, TableauCard } from "./types";
 
 type PileKind = "stock" | "waste" | "foundation" | "tableau";
@@ -75,12 +76,12 @@ function isValidTableauRun(cards: TableauCard[]): boolean {
   return true;
 }
 
-function canPlaceOnFoundation(pile: Card[], card: Card): boolean {
+function canPlaceOnFoundation(pile: Card[], card: Card, foundationIndex: number): boolean {
   const top = pile[pile.length - 1];
   if (top) {
     return top.suit === card.suit && card.rank === top.rank + 1;
   }
-  return card.rank === 1;
+  return card.rank === 1 && suitOrder[foundationIndex] === card.suit;
 }
 
 function canPlaceOnTableau(pile: TableauCard[], movingCards: Card[]): boolean {
@@ -180,7 +181,7 @@ function applyMove(game: GameState, request: MoveRequest) {
     if (!pile) throw new Error("Foundation index out of range");
     if (movingCards.length !== 1) throw new Error("Only one card can move to foundation");
     const card = movingCards[0];
-    if (!canPlaceOnFoundation(pile, card)) {
+    if (!canPlaceOnFoundation(pile, card, request.to.index)) {
       throw new Error("Card cannot be placed on foundation");
     }
     if (!source) throw new Error("No source for move");
