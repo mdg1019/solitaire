@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { backUrl, suitIcons, suitOrder } from "./game/constants";
 import { cardImage } from "./game/utils";
 import { useGame } from "./game/useGame";
@@ -12,8 +12,10 @@ const {
   dragOverTarget,
   topWaste,
   canUndo,
+  hasWon,
   newGame,
   undo,
+  simulateWin,
   drawCard,
   selectWaste,
   handleFoundationClick,
@@ -38,14 +40,179 @@ const {
 } = useGame();
 
 const isMenuOpen = ref(false);
+const dismissedWin = ref(false);
+const showWin = computed(() => hasWon.value && !dismissedWin.value);
+const showDebugControls = false;
+const winCanvas = ref<HTMLCanvasElement | null>(null);
+let fireworkFrame: number | null = null;
+let fireworkTimeout: number | null = null;
 
 function toggleMenu() {
   isMenuOpen.value = !isMenuOpen.value;
 }
+
+function closeMenu() {
+  isMenuOpen.value = false;
+}
+
+function newGameFromMenu() {
+  newGame();
+  closeMenu();
+}
+
+function undoFromMenu() {
+  undo();
+  closeMenu();
+}
+
+function simulateWinFromMenu() {
+  simulateWin();
+  closeMenu();
+}
+
+function setDrawModeFromMenu(mode: 1 | 3) {
+  setDrawMode(mode);
+  closeMenu();
+}
+
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+};
+
+function startFireworks() {
+  const canvas = winCanvas.value;
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const particles: Particle[] = [];
+  const colors = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#f9c74f"];
+  const start = performance.now();
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    canvas.style.width = `${window.innerWidth}px`;
+    canvas.style.height = `${window.innerHeight}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function burst() {
+    const x = Math.random() * window.innerWidth;
+    const y = Math.random() * window.innerHeight * 0.55 + 40;
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const count = 36 + Math.floor(Math.random() * 24);
+    for (let i = 0; i < count; i += 1) {
+      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.2;
+      const speed = 2 + Math.random() * 3.8;
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0,
+        maxLife: 60 + Math.random() * 40,
+        color,
+        size: 2 + Math.random() * 2,
+      });
+    }
+  }
+
+  function animate(now: number) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (Math.random() < 0.12) burst();
+    for (let i = particles.length - 1; i >= 0; i -= 1) {
+      const p = particles[i];
+      p.life += 1;
+      p.vy += 0.03;
+      p.x += p.vx;
+      p.y += p.vy;
+      const alpha = Math.max(0, 1 - p.life / p.maxLife);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+      if (p.life >= p.maxLife) {
+        particles.splice(i, 1);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    if (now - start < 10000) {
+      fireworkFrame = requestAnimationFrame(animate);
+    }
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+  fireworkFrame = requestAnimationFrame(animate);
+  fireworkTimeout = window.setTimeout(() => {
+    if (fireworkFrame) cancelAnimationFrame(fireworkFrame);
+    fireworkFrame = null;
+    window.removeEventListener("resize", resize);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    dismissedWin.value = true;
+  }, 10000);
+}
+
+function stopFireworks() {
+  if (fireworkFrame) cancelAnimationFrame(fireworkFrame);
+  fireworkFrame = null;
+  if (fireworkTimeout) clearTimeout(fireworkTimeout);
+  fireworkTimeout = null;
+}
+
+watch(
+  () => hasWon.value,
+  (won) => {
+    if (won) {
+      dismissedWin.value = false;
+      nextTick(() => {
+        startFireworks();
+      });
+    } else {
+      dismissedWin.value = false;
+      stopFireworks();
+    }
+  },
+  { immediate: true },
+);
+
+onMounted(() => {
+  const handler = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && hasWon.value) {
+      dismissedWin.value = true;
+      stopFireworks();
+    }
+  };
+  window.addEventListener("keydown", handler);
+  onUnmounted(() => {
+    window.removeEventListener("keydown", handler);
+  });
+});
+
+onUnmounted(() => {
+  stopFireworks();
+});
 </script>
 
 <template>
-  <main class="board">
+  <main class="board" :class="{ 'win-active': showWin }">
+    <transition name="win-fade">
+      <div v-if="showWin" class="win-overlay" role="status" aria-live="polite">
+        <canvas ref="winCanvas" class="win-canvas" aria-hidden="true"></canvas>
+        <div class="win-message">You Win!!!</div>
+      </div>
+    </transition>
     <div class="menu-bar">
       <button
         type="button"
@@ -58,12 +225,20 @@ function toggleMenu() {
         <img :src="menuUrl" alt="" />
       </button>
       <span class="menu-title">Menu</span>
+      <button
+        v-if="showDebugControls"
+        type="button"
+        class="menu-action menu-win"
+        @click="simulateWinFromMenu"
+      >
+        Simulate Win
+      </button>
     </div>
 
     <div class="menu-panel" :class="{ open: isMenuOpen }">
       <div class="menu-content">
-        <button type="button" class="menu-action" @click="newGame">New Game</button>
-        <button type="button" class="menu-action" :disabled="!canUndo" @click="undo">
+        <button type="button" class="menu-action" @click="newGameFromMenu">New Game</button>
+        <button type="button" class="menu-action" :disabled="!canUndo" @click="undoFromMenu">
           Undo (Ctrl+Z)
         </button>
         <div class="menu-group" role="group" aria-label="Draw mode">
@@ -72,7 +247,7 @@ function toggleMenu() {
               type="radio"
               name="draw-mode"
               :checked="drawMode === 1"
-              @change="setDrawMode(1)"
+              @change="setDrawModeFromMenu(1)"
             />
             Draw 1
           </label>
@@ -81,7 +256,7 @@ function toggleMenu() {
               type="radio"
               name="draw-mode"
               :checked="drawMode === 3"
-              @change="setDrawMode(3)"
+              @change="setDrawModeFromMenu(3)"
             />
             Draw 3
           </label>
@@ -89,6 +264,7 @@ function toggleMenu() {
         <p v-if="message" class="message">{{ message }}</p>
       </div>
     </div>
+    <div v-if="isMenuOpen" class="menu-backdrop" @click="closeMenu" aria-hidden="true"></div>
 
     <header class="top-row">
       <div class="pile" @click="drawCard">
@@ -194,6 +370,52 @@ function toggleMenu() {
   color: #f4f1ea;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  --card-width: 110px;
+  --card-height: 150px;
+  --tableau-offset: 26px;
+  --tableau-max-cards: 13;
+}
+
+.board.win-active {
+  gap: 18px;
+}
+
+.win-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(6, 32, 18, 0.72);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.win-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.win-message {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(36px, 7vw, 96px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffe28a;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.win-fade-enter-active,
+.win-fade-leave-active {
+  transition: opacity 0.35s ease;
+}
+
+.win-fade-enter-from,
+.win-fade-leave-to {
+  opacity: 0;
 }
 
 .menu-bar {
@@ -206,6 +428,12 @@ function toggleMenu() {
   background: rgba(6, 32, 18, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  position: relative;
+  z-index: 10;
+}
+
+.menu-win {
+  margin-left: auto;
 }
 
 .menu-button {
@@ -244,6 +472,8 @@ function toggleMenu() {
   opacity: 0;
   transform: translateY(-8px);
   transition: max-height 0.3s ease, opacity 0.2s ease, transform 0.2s ease;
+  position: relative;
+  z-index: 10;
 }
 
 .menu-panel.open {
@@ -265,6 +495,12 @@ function toggleMenu() {
   flex-wrap: wrap;
 }
 
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+}
+
 .menu-action {
   background: #f2d89b;
   border: none;
@@ -278,6 +514,12 @@ function toggleMenu() {
 
 .menu-action:hover {
   background: #f6e3b2;
+}
+
+.menu-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .menu-group {
@@ -300,7 +542,7 @@ function toggleMenu() {
 
 .top-row {
   display: grid;
-  grid-template-columns: 110px 110px 1fr;
+  grid-template-columns: var(--card-width) var(--card-width) 1fr;
   align-items: center;
   gap: 20px;
 }
@@ -313,23 +555,30 @@ function toggleMenu() {
 
 .tableau {
   display: grid;
-  grid-template-columns: repeat(7, minmax(110px, 1fr));
+  grid-template-columns: repeat(7, minmax(var(--card-width), 1fr));
   gap: 18px;
   padding-top: 8px;
+  min-height: calc(
+    var(--card-height) + var(--tableau-offset) * (var(--tableau-max-cards) - 1)
+  );
+}
+
+.board.win-active .tableau {
+  padding-top: 16px;
 }
 
 .pile,
 .tableau-pile {
   position: relative;
-  min-height: 150px;
+  min-height: var(--card-height);
   display: flex;
   justify-content: center;
   align-items: flex-start;
 }
 
 .pile.foundation {
-  width: 110px;
-  height: 150px;
+  width: var(--card-width);
+  height: var(--card-height);
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 12px;
   align-items: center;
@@ -343,7 +592,7 @@ function toggleMenu() {
 }
 
 .card {
-  width: 110px;
+  width: var(--card-width);
   height: auto;
   border-radius: 12px;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
@@ -370,14 +619,14 @@ function toggleMenu() {
 }
 
 .pile-empty {
-  width: 110px;
-  height: 150px;
+  width: var(--card-width);
+  height: var(--card-height);
   border: 2px dashed rgba(255, 255, 255, 0.35);
   border-radius: 12px;
 }
 
 .pile-empty.tall {
-  height: 150px;
+  height: var(--card-height);
 }
 
 .tableau-card {
@@ -413,6 +662,10 @@ function toggleMenu() {
 }
 
 @media (max-width: 900px) {
+  .board {
+    --card-width: 95px;
+  }
+
   .top-row {
     grid-template-columns: repeat(2, auto);
     grid-template-rows: auto auto;
@@ -423,9 +676,5 @@ function toggleMenu() {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 
-  .card,
-  .pile-empty {
-    width: 95px;
-  }
 }
 </style>

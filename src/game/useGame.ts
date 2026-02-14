@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { suitOrder } from "./constants";
-import type { Card, GameState, Selection } from "./types";
+import type { Card, GameState, Selection, Suit } from "./types";
 import { cardImage } from "./utils";
 import {
   draw as drawBackend,
@@ -36,6 +36,12 @@ export function useGame() {
     return foundations
       ? foundations.map((pile) => (pile.length ? pile[pile.length - 1] : null))
       : [];
+  });
+
+  const hasWon = computed(() => {
+    const foundations = game.value?.foundations;
+    if (!foundations || foundations.length !== 4) return false;
+    return foundations.every((pile) => pile.length === 13);
   });
 
   const canUndo = computed(() => undoStack.value.length > 0);
@@ -297,6 +303,27 @@ export function useGame() {
     return card.rank === 1 && suitOrder[index] === card.suit;
   }
 
+  function simulateWin() {
+    const foundations = suitOrder.map((suit) => {
+      const pile: Card[] = [];
+      for (let rank = 1; rank <= 13; rank += 1) {
+        pile.push({ id: -1, suit: suit as Suit, rank });
+      }
+      return pile;
+    });
+    const next: GameState = {
+      stock: [],
+      waste: [],
+      foundations,
+      tableau: [[], [], [], [], [], [], []],
+      draw_count: drawMode.value,
+    };
+    game.value = setStateBackend(next);
+    undoStack.value = [];
+    resetTransientState();
+    saveToStorage(game.value, undoStack.value);
+  }
+
   function onFoundationDragEnter(index: number) {
     if (canDropOnFoundation(index)) {
       dragOverTarget.value = `foundation:${index}`;
@@ -383,6 +410,7 @@ export function useGame() {
     dragOverTarget,
     topWaste,
     topFoundations,
+    hasWon,
     newGame,
     drawCard,
     selectWaste,
@@ -407,5 +435,6 @@ export function useGame() {
     setDrawMode,
     canUndo,
     undo,
+    simulateWin,
   };
 }
