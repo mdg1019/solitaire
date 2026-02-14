@@ -11,6 +11,7 @@ import {
 } from "./backend";
 
 export function useGame() {
+  const STORAGE_KEY = "solitaire:game-state";
   const game = ref<GameState | null>(null);
   const selection = ref<Selection | null>(null);
   const message = ref("");
@@ -39,6 +40,44 @@ export function useGame() {
 
   const canUndo = computed(() => undoStack.value.length > 0);
 
+  function saveToStorage(state: GameState | null, undo: GameState[] = []) {
+    if (!state) return;
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          current: state,
+          undo,
+        }),
+      );
+    } catch {
+      // ignore storage errors (private mode, quota, etc.)
+    }
+  }
+
+  function loadFromStorage(): { current: GameState; undo: GameState[] } | null {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { current?: GameState; undo?: GameState[] };
+      if (!parsed.current) return null;
+      return {
+        current: parsed.current,
+        undo: Array.isArray(parsed.undo) ? parsed.undo : [],
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function removeStoredGame() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
   function snapshotState(): GameState | null {
     if (!game.value) return null;
     return JSON.parse(JSON.stringify(game.value)) as GameState;
@@ -65,6 +104,7 @@ export function useGame() {
     game.value = setStateBackend(previous);
     drawMode.value = (game.value.draw_count as 1 | 3) ?? drawMode.value;
     resetTransientState();
+    saveToStorage(game.value, undoStack.value);
   }
 
   async function newGame() {
@@ -72,6 +112,7 @@ export function useGame() {
     undoStack.value = [];
     game.value = newGameBackend();
     drawMode.value = (game.value?.draw_count as 1 | 3) ?? 3;
+    saveToStorage(game.value, undoStack.value);
   }
 
   async function drawCard() {
@@ -80,6 +121,7 @@ export function useGame() {
     resetTransientState();
     game.value = drawBackend();
     pushUndo(previous);
+    saveToStorage(game.value, undoStack.value);
   }
 
   function selectWaste() {
@@ -135,6 +177,7 @@ export function useGame() {
       });
       selection.value = null;
       pushUndo(previous);
+      saveToStorage(game.value, undoStack.value);
     } catch (err) {
       message.value = err instanceof Error ? err.message : String(err);
     }
@@ -311,10 +354,19 @@ export function useGame() {
     drawMode.value = mode;
     game.value = setDrawCountBackend(mode);
     pushUndo(previous);
+    saveToStorage(game.value, undoStack.value);
   }
 
   onMounted(() => {
-    newGame();
+    const stored = loadFromStorage();
+    if (stored) {
+      game.value = setStateBackend(stored.current);
+      drawMode.value = (game.value.draw_count as 1 | 3) ?? drawMode.value;
+      undoStack.value = stored.undo;
+    } else {
+      removeStoredGame();
+      newGame();
+    }
     window.addEventListener("keydown", keydownHandler);
   });
 
